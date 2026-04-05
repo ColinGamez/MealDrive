@@ -1,0 +1,5 @@
+{
+  "name": "Meal drive: Smart AI Kitchen",
+  "description": "Snap a photo of your fridge to get instant recipe ideas, step-by-step guides, and a weekly meal plan.",
+  "requestFramePermissions": ["camera", "microphone"]
+}
