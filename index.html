@@ -3,11 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Meal drive | Smart AI Kitchen</title>
+    <meta name="description" content="Your intelligent kitchen assistant. Snap a photo of your fridge to get instant recipe ideas, step-by-step guides, and a weekly meal plan." />
+    <meta name="theme-color" content="#ff5a24" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="apple-mobile-web-app-title" content="MealDrive" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <title>MealDrive | Smart AI Kitchen</title>
+    <!-- Preconnect to Google Fonts domains so the DNS/TLS handshake happens early -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Non-blocking font load (replaces the render-blocking @import in index.css) -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap"
+    />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

@@ -5,64 +5,122 @@ export interface VoiceCommand {
   callback: (match?: any) => void;
 }
 
-export const useVoiceCommands = (commands: VoiceCommand[], active: boolean = true) => {
-  const [isListening, setIsListening] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const recognitionRef = useRef<any>(null);
+export type VoiceErrorCode = 'denied' | 'unsupported' | 'generic';
 
-  const startListening = useCallback(async () => {
-    if (recognitionRef.current) {
-      if (isListening) {
-        console.log('Speech recognition already listening');
-        return;
-      }
+export interface VoiceError {
+  code: VoiceErrorCode;
+  /** Raw detail string (mostly for the generic case). Not user-facing on its own. */
+  detail?: string;
+}
+
+interface Options {
+  /** BCP-47 language tag (e.g. "en-US", "ja-JP", "ko-KR"). Defaults to "en-US". */
+  lang?: string;
+}
+
+/**
+ * Wraps the browser SpeechRecognition API.
+ *
+ * Why the ref dance:
+ * - The previous version listed `commands` and `isListening` in its useEffect
+ *   deps, so every parent re-render rebuilt the SpeechRecognition object,
+ *   which made the mic flicker and dropped recognition mid-sentence.
+ * - Now: the recognition object is built ONCE per language. Commands and
+ *   `active` are read from refs, so updating them never tears down the engine.
+ */
+export const useVoiceCommands = (
+  commands: VoiceCommand[],
+  active: boolean = true,
+  options: Options = {},
+) => {
+  const lang = options.lang ?? 'en-US';
+  const [isListening, setIsListening] = useState(false);
+  const [error, setError] = useState<VoiceError | null>(null);
+
+  const recognitionRef = useRef<any>(null);
+  const commandsRef = useRef<VoiceCommand[]>(commands);
+  const activeRef = useRef<boolean>(active);
+  const wantListeningRef = useRef<boolean>(false);
+
+  // Keep refs in sync without triggering effect re-runs.
+  useEffect(() => {
+    commandsRef.current = commands;
+  }, [commands]);
+
+  useEffect(() => {
+    activeRef.current = active;
+    if (!active) {
+      wantListeningRef.current = false;
       try {
-        // Explicitly request permission first to force the prompt
-        await navigator.mediaDevices.getUserMedia({ audio: true });
-        
-        // Small delay to ensure hardware is ready
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        recognitionRef.current.start();
-        setIsListening(true);
-        setError(null);
-      } catch (e: any) {
-        console.error('Speech recognition start failed', e);
-        if (e.name === 'NotAllowedError' || e.message === 'Permission denied' || e.name === 'PermissionDeniedError') {
-          setError('Microphone access denied. Please click the lock icon in your browser address bar and set Microphone to "Allow". If that doesn\'t work, check your browser\'s global microphone settings or try refreshing the page.');
-        } else {
-          setError(`Could not start microphone: ${e.message}`);
-        }
-        setIsListening(false);
+        recognitionRef.current?.stop();
+      } catch {
+        /* noop */
       }
     }
-  }, [isListening]);
+  }, [active]);
 
-  const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
+  const startListening = useCallback(async () => {
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
+    if (wantListeningRef.current) return;
+
+    try {
+      // Force the permission prompt before starting.
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Tiny delay so the hardware is ready before SpeechRecognition starts.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      wantListeningRef.current = true;
+      recognition.start();
+      setIsListening(true);
+      setError(null);
+    } catch (e: any) {
+      wantListeningRef.current = false;
+      console.error('Speech recognition start failed', e);
+      if (
+        e?.name === 'NotAllowedError' ||
+        e?.message === 'Permission denied' ||
+        e?.name === 'PermissionDeniedError'
+      ) {
+        setError({ code: 'denied' });
+      } else {
+        setError({ code: 'generic', detail: String(e?.message ?? e) });
+      }
       setIsListening(false);
     }
   }, []);
 
+  const stopListening = useCallback(() => {
+    wantListeningRef.current = false;
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      /* noop */
+    }
+    setIsListening(false);
+  }, []);
+
+  // Build the recognition object ONCE per language. Everything else is read
+  // through refs so we do not bounce the engine on parent re-renders.
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setError('Speech recognition not supported in this browser');
+      setError({ code: 'unsupported' });
       return;
     }
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = false;
-    recognition.lang = 'en-US';
+    recognition.lang = lang;
 
     recognition.onresult = (event: any) => {
       const last = event.results.length - 1;
-      const transcript = event.results[last][0].transcript.toLowerCase().trim();
-      console.log('Voice command received:', transcript);
-
-      for (const { command, callback } of commands) {
+      const transcript: string = event.results[last][0].transcript
+        .toLowerCase()
+        .trim();
+      for (const { command, callback } of commandsRef.current) {
         if (typeof command === 'string') {
           if (transcript.includes(command.toLowerCase())) {
             callback(transcript);
@@ -79,46 +137,49 @@ export const useVoiceCommands = (commands: VoiceCommand[], active: boolean = tru
     };
 
     recognition.onerror = (event: any) => {
+      // eslint-disable-next-line no-console
       console.error('Speech recognition error', event.error);
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        setError('Microphone access denied. Please click the lock icon in your browser address bar and set Microphone to "Allow". If that doesn\'t work, check your browser\'s global microphone settings or try refreshing the page.');
-      } else if (event.error === 'no-speech') {
-        // Ignore no-speech errors as they are common and handled by auto-restart
-        return;
-      } else if (event.error === 'aborted') {
-        // Aborted usually means it was stopped manually or by another process
-        console.log('Speech recognition aborted');
+        setError({ code: 'denied' });
+        wantListeningRef.current = false;
+        setIsListening(false);
+      } else if (event.error === 'no-speech' || event.error === 'aborted') {
         return;
       } else {
-        setError(`Speech recognition error: ${event.error}`);
-      }
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      console.log('Speech recognition ended');
-      if (active && isListening && !error) {
-        // Auto-restart if it was supposed to be listening and no fatal error
-        try {
-          recognition.start();
-        } catch (e) {
-          // If start fails here, it might already be starting or have a permission issue
-          console.warn('Auto-restart failed', e);
-        }
-      } else {
+        setError({ code: 'generic', detail: String(event.error) });
+        wantListeningRef.current = false;
         setIsListening(false);
       }
     };
 
+    recognition.onend = () => {
+      if (activeRef.current && wantListeningRef.current) {
+        try {
+          recognition.start();
+          return;
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn('Voice auto-restart failed', e);
+        }
+      }
+      setIsListening(false);
+    };
+
     recognitionRef.current = recognition;
 
-    // We don't auto-start here to avoid 'not-allowed' on page load without gesture
-    // The UI will handle the initial start via a button click
-
     return () => {
-      recognition.stop();
+      wantListeningRef.current = false;
+      try {
+        recognition.onresult = null;
+        recognition.onerror = null;
+        recognition.onend = null;
+        recognition.stop();
+      } catch {
+        /* noop */
+      }
+      recognitionRef.current = null;
     };
-  }, [commands, active, isListening, error]);
+  }, [lang]);
 
   return { isListening, error, startListening, stopListening };
 };

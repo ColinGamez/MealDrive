@@ -1,158 +1,120 @@
-import { GoogleGenAI, Modality } from "@google/genai";
-import { RECIPE_SCHEMA, Recipe, MEAL_PLAN_SCHEMA, MealPlan, Language } from "../types";
+import { Recipe, MealPlan, Language } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+/**
+ * AI calls used to live in this file and ran in the browser, which leaked
+ * GEMINI_API_KEY into the client bundle. Every call now goes through the
+ * Express server (see server/geminiApi.ts), which keeps the key off the
+ * client and lets us swap providers later without touching components.
+ */
 
-const getLanguageInstructions = (language: Language): string => {
-  switch (language) {
-    case 'ja':
-      return `Respond entirely in Japanese. 
-      - Use natural cooking terminology (e.g., '作り方' for instructions, '材料' for ingredients). 
-      - Ensure the tone is polite and helpful (Desu/Masu style). 
-      - All names, descriptions, and instructions must be in Japanese. 
-      - Do NOT include any English words unless they are common loanwords in Japanese cooking. 
-      - Use metric units (g, ml, cm) as they are standard in Japan.`;
-    case 'ko':
-      return `Respond entirely in Korean. 
-      - Use natural cooking terminology (e.g., '조리법' for instructions, '재료' for ingredients). 
-      - Use a friendly, modern, and helpful tone. 
-      - All names, descriptions, and instructions must be in Korean. 
-      - Do NOT include any English words unless they are common loanwords in Korean cooking. 
-      - Use metric units (g, ml, cm) as they are standard in Korea.`;
-    default:
-      return `Respond entirely in English. 
-      - Use natural, friendly cooking terminology. 
-      - All names, descriptions, and instructions must be in English. 
-      - Use common cooking measurements (cups, tbsp, tsp, lbs, oz).`;
+class AIServiceError extends Error {
+  status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'AIServiceError';
+    this.status = status;
   }
-};
+}
 
-export const analyzeFridgeImage = async (base64Image: string, language: Language = 'en'): Promise<string[]> => {
-  const model = "gemini-3.1-pro-preview";
-  const languageInstructions = getLanguageInstructions(language);
-  
-  const response = await ai.models.generateContent({
-    model,
-    contents: [
-      {
-        parts: [
-          { text: `${languageInstructions}\nIdentify all visible food ingredients in this fridge. Return only a comma-separated list of ingredients in the specified language.` },
-          { inlineData: { data: base64Image.split(",")[1], mimeType: "image/jpeg" } },
-        ],
-      },
-    ],
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
 
-  const text = response.text || "";
-  return text.split(",").map(i => i.trim()).filter(Boolean);
-};
-
-export const generateRecipes = async (ingredients: string[], dietaryRestrictions: string[], language: Language = 'en'): Promise<Recipe[]> => {
-  const model = "gemini-3.1-pro-preview";
-  const languageInstructions = getLanguageInstructions(language);
-  
-  const prompt = `${languageInstructions}
-  Based on these ingredients: ${ingredients.join(", ")}, suggest 5 creative recipes. 
-  Consider these dietary restrictions: ${dietaryRestrictions.join(", ")}.
-  For each recipe, provide a detailed description, ingredients (mark if missing), step-by-step instructions, preparation time, difficulty, calories, dietary tags, and a rating from 1 to 5 based on its popularity and flavor profile.`;
-
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: RECIPE_SCHEMA,
-    },
-  });
-
+  let payload: unknown = null;
   try {
-    return JSON.parse(response.text || "[]");
-  } catch (e) {
-    console.error("Failed to parse recipes", e);
-    return [];
+    payload = await response.json();
+  } catch {
+    /* empty / non-JSON */
   }
-};
 
-export const generateMealPlan = async (ingredients: string[], dietaryRestrictions: string[], cuisines: string[], language: Language = 'en'): Promise<MealPlan> => {
-  const model = "gemini-3.1-pro-preview";
-  const languageInstructions = getLanguageInstructions(language);
-  
-  const prompt = `${languageInstructions}
-  Generate a 7-day meal plan (Monday to Sunday) based on these available ingredients: ${ingredients.join(", ")}.
-  Dietary restrictions: ${dietaryRestrictions.join(", ")}.
-  Preferred cuisines: ${cuisines.join(", ")}.
-  For each day, provide a breakfast, lunch, and dinner recipe.
-  Each recipe must include a detailed description, ingredients, instructions, preparation time, difficulty, calories, dietary tags, and a rating.`;
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === 'object' && 'message' in payload
+        ? String((payload as { message: unknown }).message)
+        : `Request to ${url} failed with status ${response.status}`;
+    throw new AIServiceError(message, response.status);
+  }
 
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: MEAL_PLAN_SCHEMA,
-    },
+  return payload as T;
+}
+
+export const analyzeFridgeImage = async (
+  base64Image: string,
+  language: Language = 'en',
+): Promise<string[]> => {
+  const data = await postJson<{ ingredients: string[] }>('/api/ai/analyze-fridge', {
+    image: base64Image,
+    language,
   });
-
-  try {
-    return JSON.parse(response.text || "[]");
-  } catch (e) {
-    console.error("Failed to parse meal plan", e);
-    return [];
-  }
+  return Array.isArray(data?.ingredients) ? data.ingredients : [];
 };
 
-export const swapMeal = async (currentMeal: Recipe, ingredients: string[], dietaryRestrictions: string[], cuisines: string[], language: Language = 'en'): Promise<Recipe> => {
-  const model = "gemini-3.1-pro-preview";
-  const languageInstructions = getLanguageInstructions(language);
-  
-  const prompt = `${languageInstructions}
-  Suggest a different recipe to replace this one: ${currentMeal.title}.
-  Available ingredients: ${ingredients.join(", ")}.
-  Dietary restrictions: ${dietaryRestrictions.join(", ")}.
-  Preferred cuisines: ${cuisines.join(", ")}.
-  Provide a detailed description, ingredients, instructions, preparation time, difficulty, calories, dietary tags, and a rating.
-  Return only ONE recipe object.`;
-
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: RECIPE_SCHEMA.items,
-    },
+export const generateRecipes = async (
+  ingredients: string[],
+  dietaryRestrictions: string[],
+  language: Language = 'en',
+): Promise<Recipe[]> => {
+  const data = await postJson<{ recipes: Recipe[] }>('/api/ai/recipes', {
+    ingredients,
+    dietaryRestrictions,
+    language,
   });
-
-  try {
-    return JSON.parse(response.text || "{}");
-  } catch (e) {
-    console.error("Failed to parse swapped recipe", e);
-    return currentMeal;
-  }
+  // Tag each recipe with the language it was generated in so the UI can flag
+  // mismatches when the user later switches languages.
+  return Array.isArray(data?.recipes) ? data.recipes.map(r => ({ ...r, language })) : [];
 };
 
-export const generateSpeech = async (text: string, language: Language = 'en'): Promise<string> => {
-  const voiceMap = {
-    'en': 'Kore',
-    'ja': 'Kore', // Kore supports multiple languages or I should check if there are better ones
-    'ko': 'Kore'
-  };
-  
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text: `Read this cooking instruction clearly in the appropriate language: ${text}` }] }],
-    config: {
-      responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: voiceMap[language] || 'Kore' },
-        },
-      },
-    },
+export const generateMealPlan = async (
+  ingredients: string[],
+  dietaryRestrictions: string[],
+  cuisines: string[],
+  language: Language = 'en',
+): Promise<MealPlan> => {
+  const data = await postJson<{ plan: MealPlan }>('/api/ai/meal-plan', {
+    ingredients,
+    dietaryRestrictions,
+    cuisines,
+    language,
   });
-
-  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  if (base64Audio) {
-    return `data:audio/mp3;base64,${base64Audio}`;
-  }
-  throw new Error("Failed to generate speech");
+  if (!Array.isArray(data?.plan)) return [];
+  return data.plan.map(day => ({
+    ...day,
+    breakfast: { ...day.breakfast, language },
+    lunch: { ...day.lunch, language },
+    dinner: { ...day.dinner, language },
+  }));
 };
+
+export const swapMeal = async (
+  currentMeal: Recipe,
+  ingredients: string[],
+  dietaryRestrictions: string[],
+  cuisines: string[],
+  language: Language = 'en',
+): Promise<Recipe> => {
+  const data = await postJson<{ recipe: Recipe }>('/api/ai/swap-meal', {
+    currentMeal,
+    ingredients,
+    dietaryRestrictions,
+    cuisines,
+    language,
+  });
+  return data?.recipe ? { ...data.recipe, language } : currentMeal;
+};
+
+export const generateSpeech = async (
+  text: string,
+  language: Language = 'en',
+): Promise<string> => {
+  const data = await postJson<{ audioUrl: string }>('/api/ai/speech', {
+    text,
+    language,
+  });
+  if (!data?.audioUrl) throw new AIServiceError('Failed to generate speech');
+  return data.audioUrl;
+};
+
+export { AIServiceError };
