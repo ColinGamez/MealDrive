@@ -1,6 +1,19 @@
 import { Type } from "@google/genai";
 
 export type Language = 'en' | 'ja' | 'ko';
+export type ShoppingProviderId = 'instacart' | 'rakuten' | 'naver';
+export type ShoppingMarket = 'northAmerica' | 'japan' | 'korea';
+
+/** Top-level view in the App shell. */
+export type View =
+  | 'home'
+  | 'recipes'
+  | 'shopping'
+  | 'meal-plan'
+  | 'about'
+  | 'saved'
+  | 'pantry'
+  | 'profile';
 
 export interface Ingredient {
   name: string;
@@ -12,6 +25,8 @@ export interface PantryItem {
   name: string;
   amount?: string;
   isLowStock?: boolean;
+  /** Local calendar date in YYYY-MM-DD format. */
+  expiresAt?: string;
   lastUsedAt?: number;
 }
 
@@ -28,6 +43,9 @@ export interface Recipe {
   imagePrompt: string;
   rating: number;
   servings: number;
+  styleNote?: string;
+  /** Language the recipe text was generated in. Set client-side at API call time. */
+  language?: Language;
 }
 
 export const RECIPE_SCHEMA = {
@@ -60,8 +78,9 @@ export const RECIPE_SCHEMA = {
       imagePrompt: { type: Type.STRING, description: "A prompt to generate a high-quality food photo for this recipe" },
       rating: { type: Type.NUMBER, description: "Average user rating from 1 to 5" },
       servings: { type: Type.NUMBER, description: "Number of servings this recipe makes" },
+      styleNote: { type: Type.STRING, description: "A short, subtle note about the recipe's cultural context or cooking style (e.g., 'Simple Japanese home meal', 'Korean comfort classic')" },
     },
-    required: ["id", "title", "description", "ingredients", "instructions", "preparationTime", "difficulty", "calories", "dietaryTags", "imagePrompt", "rating", "servings"],
+    required: ["id", "title", "description", "ingredients", "instructions", "preparationTime", "difficulty", "calories", "dietaryTags", "imagePrompt", "rating", "servings", "styleNote"],
   },
 };
 
@@ -79,9 +98,79 @@ export interface ShoppingItem {
   checked: boolean;
 }
 
+export interface ShoppingProviderSummary {
+  id: ShoppingProviderId;
+  name: string;
+  market: ShoppingMarket;
+}
+
+export interface ShoppingSearchResult {
+  id: string;
+  title: string;
+  url: string;
+  imageUrl?: string;
+  merchant?: string;
+  price?: string;
+}
+
+export interface ShoppingExportRequest {
+  language: Language;
+  items: ShoppingItem[];
+}
+
+export interface ShoppingExportResponse {
+  provider: ShoppingProviderSummary;
+  mode: 'link' | 'results';
+  query: string;
+  message: string;
+  url?: string;
+  results?: ShoppingSearchResult[];
+}
+
+export interface ShoppingExportErrorPayload {
+  message: string;
+  provider?: ShoppingProviderSummary;
+  missingCredentials?: string[];
+}
+
 export interface RecentRecipe {
   recipe: Recipe;
   cookedAt: number;
+}
+
+export interface RecipeNote {
+  id: string;
+  recipeId: string;
+  stepIndex?: number;
+  content: string;
+  timestamp: number;
+}
+
+export interface UserProfile {
+  displayName: string;
+  emojiAvatar: string;
+  preferredLanguage: Language;
+  dietaryPreferences: string[];
+  favoriteCuisines: string[];
+  cookingStyle: string;
+}
+
+export interface UserStats {
+  totalCooked: number;
+  weeklyCooked: number;
+  streak: number;
+  longestStreak: number;
+  scansCompleted: number;
+  rescueCount: number;
+  mealPlansCreated: number;
+  shoppingListUses: number;
+  lastCookedAt?: number;
+}
+
+export interface KitchenIdentity {
+  title: string;
+  description: string;
+  icon: string;
 }
 
 export type MealPlan = DailyPlan[];
