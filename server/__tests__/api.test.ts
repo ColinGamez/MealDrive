@@ -81,6 +81,12 @@ describe('MealDrive API', () => {
         });
         assert.equal(recipeResponse.status, 400);
 
+        const priorityResponse = await postJson(baseUrl, '/api/ai/recipes', {
+          ingredients: ['eggs'],
+          priorityIngredients: 'milk',
+        });
+        assert.equal(priorityResponse.status, 400);
+
         const speechResponse = await postJson(baseUrl, '/api/ai/speech', { text: '   ' });
         assert.equal(speechResponse.status, 400);
       });

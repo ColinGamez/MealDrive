@@ -152,6 +152,7 @@ export async function handleGenerateRecipes(req: Request, res: Response) {
     | {
         ingredients?: unknown;
         dietaryRestrictions?: unknown;
+        priorityIngredients?: unknown;
         language?: unknown;
       }
     | undefined;
@@ -162,12 +163,18 @@ export async function handleGenerateRecipes(req: Request, res: Response) {
   if (body?.dietaryRestrictions !== undefined && !isStringArray(body.dietaryRestrictions)) {
     return badRequest(res, '`dietaryRestrictions` must be an array of strings.');
   }
+  if (body?.priorityIngredients !== undefined && !isStringArray(body.priorityIngredients)) {
+    return badRequest(res, '`priorityIngredients` must be an array of strings.');
+  }
 
   const ingredients = body.ingredients;
   const dietaryRestrictions = isStringArray(body?.dietaryRestrictions)
     ? body!.dietaryRestrictions
     : [];
   const language = isLanguage(body?.language) ? body!.language : 'en';
+  const priorityIngredients = isStringArray(body.priorityIngredients)
+    ? body.priorityIngredients
+    : [];
 
   const ai = getClient();
   if (!ai) return unauthenticated(res);
@@ -175,6 +182,7 @@ export async function handleGenerateRecipes(req: Request, res: Response) {
   const prompt = `${getLanguageInstructions(language)}
   Based on these ingredients: ${ingredients.join(', ')}, suggest 5 creative recipes.
   Consider these dietary restrictions: ${dietaryRestrictions.join(', ')}.
+  Ingredients that should be used first to prevent waste: ${priorityIngredients.join(', ') || 'none'}.
   For each recipe, provide a detailed description, ingredients (mark if missing), step-by-step instructions, preparation time, difficulty, calories, dietary tags, a rating from 1 to 5, and a subtle 'styleNote' (e.g., 'Simple Japanese home meal', 'Korean comfort classic', 'Quick everyday favorite').
 
   CULTURAL CONSTRAINTS:
@@ -182,6 +190,7 @@ export async function handleGenerateRecipes(req: Request, res: Response) {
   - Avoid mismatched cuisine mixes.
   - Substitutions should respect regional norms.
   - Focus on "realistic home cooking" that uses available ingredients effectively.
+  - When priority ingredients are provided, favor recipes that use them safely and prominently.
   - The 'styleNote' should be short, natural, and non-technical, reflecting the recipe's cultural or lifestyle fit.`;
 
   try {
@@ -218,6 +227,7 @@ export async function handleGenerateMealPlan(req: Request, res: Response) {
         ingredients?: unknown;
         dietaryRestrictions?: unknown;
         cuisines?: unknown;
+        priorityIngredients?: unknown;
         language?: unknown;
       }
     | undefined;
@@ -231,6 +241,9 @@ export async function handleGenerateMealPlan(req: Request, res: Response) {
   if (body?.cuisines !== undefined && !isStringArray(body.cuisines)) {
     return badRequest(res, '`cuisines` must be an array of strings.');
   }
+  if (body?.priorityIngredients !== undefined && !isStringArray(body.priorityIngredients)) {
+    return badRequest(res, '`priorityIngredients` must be an array of strings.');
+  }
 
   const ingredients = body.ingredients;
   const dietaryRestrictions = isStringArray(body?.dietaryRestrictions)
@@ -238,6 +251,9 @@ export async function handleGenerateMealPlan(req: Request, res: Response) {
     : [];
   const cuisines = isStringArray(body?.cuisines) ? body!.cuisines : [];
   const language = isLanguage(body?.language) ? body!.language : 'en';
+  const priorityIngredients = isStringArray(body.priorityIngredients)
+    ? body.priorityIngredients
+    : [];
 
   const ai = getClient();
   if (!ai) return unauthenticated(res);
@@ -246,6 +262,7 @@ export async function handleGenerateMealPlan(req: Request, res: Response) {
   Generate a 7-day meal plan (Monday to Sunday) based on these available ingredients: ${ingredients.join(', ')}.
   Dietary restrictions: ${dietaryRestrictions.join(', ')}.
   Preferred cuisines: ${cuisines.join(', ')}.
+  Ingredients that should be used early in the week to prevent waste: ${priorityIngredients.join(', ') || 'none'}.
   For each day, provide a breakfast, lunch, and dinner recipe.
   Each recipe must include a detailed description, ingredients, instructions, preparation time, difficulty, calories, dietary tags, a rating, and a subtle 'styleNote'.
 
@@ -253,6 +270,7 @@ export async function handleGenerateMealPlan(req: Request, res: Response) {
   - Ensure the meal plan reflects typical regional eating habits (e.g., typical Japanese breakfast vs. typical English breakfast).
   - Use realistic ingredient combinations that a home cook in that region would use.
   - Prioritize "realistic home cooking" over restaurant-style dishes.
+  - Schedule priority ingredients earlier in the week when practical and safe.
   - The 'styleNote' should be short, natural, and non-technical, reflecting the recipe's cultural or lifestyle fit.`;
 
   try {

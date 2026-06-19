@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { PantryItem } from '../../types';
-import { mergePantryItems } from '../pantryUtils';
+import {
+  getPantryFreshness,
+  getPantryGenerationContext,
+  mergePantryItems,
+  prioritizePantryItems,
+} from '../pantryUtils';
 
 const existing: PantryItem[] = [
   { id: 'salt', name: 'Salt', amount: '1 jar', isLowStock: true },
@@ -46,5 +51,59 @@ describe('mergePantryItems', () => {
     ]);
 
     assert.equal(result, settled);
+  });
+});
+
+describe('pantry freshness', () => {
+  const now = new Date('2026-06-20T12:00:00').getTime();
+
+  it('classifies expired, use-soon, fresh, and undated items', () => {
+    assert.deepEqual(getPantryFreshness({ expiresAt: '2026-06-19' }, now), {
+      status: 'expired',
+      daysRemaining: -1,
+    });
+    assert.deepEqual(getPantryFreshness({ expiresAt: '2026-06-22' }, now), {
+      status: 'useSoon',
+      daysRemaining: 2,
+    });
+    assert.deepEqual(getPantryFreshness({ expiresAt: '2026-07-01' }, now), {
+      status: 'fresh',
+      daysRemaining: 11,
+    });
+    assert.deepEqual(getPantryFreshness({}, now), {
+      status: 'none',
+      daysRemaining: null,
+    });
+  });
+
+  it('prioritizes expired and use-soon ingredients without mutating input', () => {
+    const items: PantryItem[] = [
+      { id: 'undated', name: 'Rice' },
+      { id: 'fresh', name: 'Carrots', expiresAt: '2026-07-01' },
+      { id: 'soon', name: 'Milk', expiresAt: '2026-06-21' },
+      { id: 'expired', name: 'Spinach', expiresAt: '2026-06-19' },
+    ];
+
+    const prioritized = prioritizePantryItems(items, now);
+    assert.deepEqual(prioritized.map((item) => item.id), [
+      'expired',
+      'soon',
+      'fresh',
+      'undated',
+    ]);
+    assert.deepEqual(items.map((item) => item.id), ['undated', 'fresh', 'soon', 'expired']);
+  });
+
+  it('prioritizes use-soon food and excludes expired food from AI context', () => {
+    const context = getPantryGenerationContext([
+      { id: 'rice', name: 'Rice' },
+      { id: 'milk', name: 'Milk', expiresAt: '2026-06-21' },
+      { id: 'spinach', name: 'Spinach', expiresAt: '2026-06-19' },
+    ], now);
+
+    assert.deepEqual(context, {
+      ingredients: ['Milk', 'Rice'],
+      priorityIngredients: ['Milk'],
+    });
   });
 });

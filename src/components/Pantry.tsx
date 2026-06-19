@@ -8,10 +8,13 @@ import {
   AlertCircle,
   ShoppingCart,
   PackagePlus,
+  CalendarDays,
+  Clock3,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useI18n } from '../i18n/I18nContext';
 import { newId } from '../lib/id';
+import { getPantryFreshness } from '../lib/pantryUtils';
 
 import { Language, PantryItem, View } from '../types';
 
@@ -48,6 +51,7 @@ interface Props {
   onAddMany: (items: PantryItem[]) => void;
   onRemove: (id: string) => void;
   onToggleLowStock: (id: string) => void;
+  onUpdateExpiry: (id: string, expiresAt?: string) => void;
   onClear: () => void;
   onGenerateRecipes: () => void;
   onAddLowStockToShopping: () => void;
@@ -61,6 +65,7 @@ export const Pantry: React.FC<Props> = ({
   onAddMany,
   onRemove,
   onToggleLowStock,
+  onUpdateExpiry,
   onClear,
   onGenerateRecipes,
   onAddLowStockToShopping,
@@ -70,9 +75,28 @@ export const Pantry: React.FC<Props> = ({
   const { t, language } = useI18n();
   const [newItem, setNewItem] = useState('');
   const [newAmount, setNewAmount] = useState('');
+  const [newExpiry, setNewExpiry] = useState('');
 
-  const lowStockItems = useMemo(() => pantry.filter(item => item.isLowStock), [pantry]);
-  const inStockItems = useMemo(() => pantry.filter(item => !item.isLowStock), [pantry]);
+  const { useSoonItems, lowStockItems, inStockItems } = useMemo(() => {
+    const groups = {
+      useSoonItems: [] as PantryItem[],
+      lowStockItems: [] as PantryItem[],
+      inStockItems: [] as PantryItem[],
+    };
+
+    pantry.forEach((item) => {
+      const freshness = getPantryFreshness(item);
+      if (freshness.status === 'expired' || freshness.status === 'useSoon') {
+        groups.useSoonItems.push(item);
+      } else if (item.isLowStock) {
+        groups.lowStockItems.push(item);
+      } else {
+        groups.inStockItems.push(item);
+      }
+    });
+
+    return groups;
+  }, [pantry]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,9 +105,11 @@ export const Pantry: React.FC<Props> = ({
         id: newId(),
         name: newItem.trim(),
         amount: newAmount.trim() || undefined,
+        expiresAt: newExpiry || undefined,
       });
       setNewItem('');
       setNewAmount('');
+      setNewExpiry('');
     }
   };
 
@@ -156,6 +182,19 @@ export const Pantry: React.FC<Props> = ({
             className="w-full min-h-14 px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-transparent rounded-2xl text-base font-bold focus:border-food-orange focus:bg-white transition-all dark:text-white placeholder:text-zinc-400"
           />
         </div>
+        <div className="relative md:w-48">
+          <label htmlFor="pantry-item-expiry" className="sr-only">{t('pantry.expiryDate')}</label>
+          <input
+            id="pantry-item-expiry"
+            name="expiry"
+            type="date"
+            value={newExpiry}
+            onChange={(e) => setNewExpiry(e.target.value)}
+            aria-label={t('pantry.expiryDate')}
+            className="w-full min-h-14 pl-11 pr-3 py-3 bg-zinc-50 dark:bg-zinc-950 border border-transparent rounded-2xl text-sm font-bold text-zinc-700 focus:border-food-orange focus:bg-white transition-all dark:text-zinc-200"
+          />
+          <CalendarDays className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+        </div>
         <button
           type="submit"
           className="min-h-14 px-8 py-3 bg-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 text-white rounded-2xl text-sm font-extrabold hover:bg-zinc-800 dark:hover:bg-white transition-all shadow-md"
@@ -197,6 +236,33 @@ export const Pantry: React.FC<Props> = ({
         </div>
       ) : (
         <div className="space-y-20">
+          {useSoonItems.length > 0 && (
+            <section>
+              <div className="flex items-center gap-5 mb-10">
+                <div className="w-14 h-14 bg-amber-100 dark:bg-amber-500/10 rounded-[1.5rem] flex items-center justify-center">
+                  <Clock3 className="w-7 h-7 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="text-3xl font-display font-black text-zinc-900 dark:text-white tracking-tighter">{t('pantry.useSoonTitle')}</h3>
+                  <p className="text-sm text-amber-600 font-black uppercase tracking-widest">{t('pantry.useSoonDesc')}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                <AnimatePresence mode="popLayout">
+                  {useSoonItems.map((item) => (
+                    <PantryCard
+                      key={item.id}
+                      item={item}
+                      onRemove={onRemove}
+                      onToggleLowStock={onToggleLowStock}
+                      onUpdateExpiry={onUpdateExpiry}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            </section>
+          )}
+
           {lowStockItems.length > 0 && (
             <section>
               <div className="flex items-center justify-between mb-10">
@@ -221,13 +287,20 @@ export const Pantry: React.FC<Props> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 <AnimatePresence mode="popLayout">
                   {lowStockItems.map((item) => (
-                    <PantryCard key={item.id} item={item} onRemove={onRemove} onToggleLowStock={onToggleLowStock} />
+                    <PantryCard
+                      key={item.id}
+                      item={item}
+                      onRemove={onRemove}
+                      onToggleLowStock={onToggleLowStock}
+                      onUpdateExpiry={onUpdateExpiry}
+                    />
                   ))}
                 </AnimatePresence>
               </div>
             </section>
           )}
 
+          {inStockItems.length > 0 && (
           <section>
             <div className="flex items-center gap-5 mb-10">
               <div className="w-14 h-14 bg-zinc-100 dark:bg-zinc-800 rounded-[1.5rem] flex items-center justify-center glossy">
@@ -241,11 +314,18 @@ export const Pantry: React.FC<Props> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               <AnimatePresence mode="popLayout">
                 {inStockItems.map((item) => (
-                  <PantryCard key={item.id} item={item} onRemove={onRemove} onToggleLowStock={onToggleLowStock} />
+                  <PantryCard
+                    key={item.id}
+                    item={item}
+                    onRemove={onRemove}
+                    onToggleLowStock={onToggleLowStock}
+                    onUpdateExpiry={onUpdateExpiry}
+                  />
                 ))}
               </AnimatePresence>
             </div>
           </section>
+          )}
         </div>
       )}
     </div>
@@ -256,9 +336,25 @@ const PantryCard = React.memo<{
   item: PantryItem;
   onRemove: (id: string) => void;
   onToggleLowStock: (id: string) => void;
-}>(({ item, onRemove, onToggleLowStock }) => {
-  const { t } = useI18n();
+  onUpdateExpiry: (id: string, expiresAt?: string) => void;
+}>(({ item, onRemove, onToggleLowStock, onUpdateExpiry }) => {
+  const { t, locale } = useI18n();
   const toggleLabel = item.isLowStock ? t('pantry.markInStock') : t('pantry.markLowStock');
+  const freshness = getPantryFreshness(item);
+  const isExpired = freshness.status === 'expired';
+  const isUseSoon = freshness.status === 'useSoon';
+  const expiryLabel = (() => {
+    if (isExpired) return t('pantry.expired');
+    if (freshness.daysRemaining === 0) return t('pantry.useToday');
+    if (freshness.daysRemaining === 1) return t('pantry.useTomorrow');
+    if (isUseSoon) return t('pantry.useInDays', { count: freshness.daysRemaining ?? 0 });
+    if (item.expiresAt) {
+      return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(
+        new Date(`${item.expiresAt}T00:00:00`),
+      );
+    }
+    return t('pantry.setExpiry');
+  })();
   return (
     <motion.div
       layout
@@ -267,16 +363,22 @@ const PantryCard = React.memo<{
       exit={{ opacity: 0, scale: 0.9 }}
       whileHover={{ y: -4, scale: 1.02 }}
       className={`flex items-center justify-between p-6 rounded-[2.5rem] border transition-all group glass glossy soft-shadow ${
-        item.isLowStock
+        isExpired
+          ? 'bg-red-50/80 border-red-200 dark:bg-red-500/5 dark:border-red-500/20'
+          : isUseSoon
+            ? 'bg-amber-50/80 border-amber-200 dark:bg-amber-500/5 dark:border-amber-500/20'
+            : item.isLowStock
           ? 'bg-food-orange/5 border-food-orange/20'
           : 'border-white/50 dark:border-zinc-800/50'
       }`}
     >
       <div className="flex items-center gap-5">
         <div className={`w-14 h-14 rounded-[1.5rem] flex items-center justify-center glossy shadow-inner ${
-          item.isLowStock ? 'bg-food-orange/20' : 'bg-zinc-50 dark:bg-zinc-800'
+          isExpired ? 'bg-red-100 dark:bg-red-500/10' : isUseSoon ? 'bg-amber-100 dark:bg-amber-500/10' : item.isLowStock ? 'bg-food-orange/20' : 'bg-zinc-50 dark:bg-zinc-800'
         }`}>
-          {item.isLowStock ? (
+          {isExpired || isUseSoon ? (
+            <Clock3 className={`w-7 h-7 ${isExpired ? 'text-red-500' : 'text-amber-600'}`} />
+          ) : item.isLowStock ? (
             <AlertCircle className="w-7 h-7 text-food-orange" />
           ) : (
             <Sparkles className="w-7 h-7 text-food-orange" />
@@ -288,10 +390,29 @@ const PantryCard = React.memo<{
             {item.isLowStock && (
               <span className="px-2 py-0.5 bg-food-orange text-white text-[8px] font-black uppercase tracking-widest rounded-md shadow-sm">{t('pantry.lowLabel')}</span>
             )}
+            {(isExpired || isUseSoon) && (
+              <span className={`px-2 py-0.5 text-white text-[8px] font-black uppercase tracking-widest rounded-md shadow-sm ${isExpired ? 'bg-red-500' : 'bg-amber-500'}`}>
+                {expiryLabel}
+              </span>
+            )}
           </div>
           {item.amount && (
             <span className="text-sm text-zinc-400 font-black uppercase tracking-tighter">{item.amount}</span>
           )}
+          <label
+            className={`relative mt-1 inline-flex w-fit cursor-pointer items-center gap-1.5 text-xs font-bold ${isExpired ? 'text-red-500' : isUseSoon ? 'text-amber-600' : 'text-zinc-400 hover:text-food-orange'}`}
+            title={t('pantry.expiryDate')}
+          >
+            <CalendarDays className="h-3.5 w-3.5" />
+            {expiryLabel}
+            <input
+              type="date"
+              value={item.expiresAt ?? ''}
+              onChange={(event) => onUpdateExpiry(item.id, event.target.value || undefined)}
+              aria-label={t('pantry.expiryFor', { item: item.name })}
+              className="absolute inset-0 cursor-pointer opacity-0"
+            />
+          </label>
         </div>
       </div>
       <div className="flex items-center gap-1">

@@ -21,6 +21,7 @@ import { IngredientScanner } from '../components/IngredientScanner';
 import { useI18n } from '../i18n/I18nContext';
 import { getRecipePantryStatus } from '../lib/ingredientUtils';
 import { getRecipeReason } from '../lib/reasonUtils';
+import { getPantryFreshness } from '../lib/pantryUtils';
 
 interface Props {
   pantry: PantryItem[];
@@ -59,6 +60,10 @@ export const HomeView: React.FC<Props> = ({
 }) => {
   const { t } = useI18n();
   const lowStockCount = pantry.reduce((count, item) => count + (item.isLowStock ? 1 : 0), 0);
+  const useSoonCount = pantry.reduce((count, item) => {
+    const status = getPantryFreshness(item).status;
+    return count + (status === 'expired' || status === 'useSoon' ? 1 : 0);
+  }, 0);
 
   const scrollToScanner = () => {
     document.getElementById('fridge-scanner')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -183,6 +188,7 @@ export const HomeView: React.FC<Props> = ({
               <p className="font-display text-xl font-black text-zinc-950 dark:text-white">{t('pantry.inStockTitle')}</p>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
                 {t('dashboard.ingredientsCount', { count: pantry.length })}
+                {useSoonCount > 0 ? ` · ${useSoonCount} ${t('common.useSoon').toLowerCase()}` : ''}
                 {lowStockCount > 0 ? ` · ${lowStockCount} ${t('common.lowStock').toLowerCase()}` : ''}
               </p>
             </div>

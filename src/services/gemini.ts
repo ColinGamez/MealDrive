@@ -67,11 +67,13 @@ export const generateRecipes = async (
   ingredients: string[],
   dietaryRestrictions: string[],
   language: Language = 'en',
+  priorityIngredients: string[] = [],
 ): Promise<Recipe[]> => {
   const data = await postJson<{ recipes: Recipe[] }>('/api/ai/recipes', {
     ingredients,
     dietaryRestrictions,
     language,
+    priorityIngredients,
   });
   // Tag each recipe with the language it was generated in so the UI can flag
   // mismatches when the user later switches languages.
@@ -83,12 +85,14 @@ export const generateMealPlan = async (
   dietaryRestrictions: string[],
   cuisines: string[],
   language: Language = 'en',
+  priorityIngredients: string[] = [],
 ): Promise<MealPlan> => {
   const data = await postJson<{ plan: MealPlan }>('/api/ai/meal-plan', {
     ingredients,
     dietaryRestrictions,
     cuisines,
     language,
+    priorityIngredients,
   });
   if (!Array.isArray(data?.plan)) return [];
   return data.plan.map(day => ({

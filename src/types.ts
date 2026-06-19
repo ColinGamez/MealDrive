@@ -25,6 +25,8 @@ export interface PantryItem {
   name: string;
   amount?: string;
   isLowStock?: boolean;
+  /** Local calendar date in YYYY-MM-DD format. */
+  expiresAt?: string;
   lastUsedAt?: number;
 }
 

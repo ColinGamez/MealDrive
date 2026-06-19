@@ -37,7 +37,7 @@ import { analyzeFridgeImage, generateRecipes, generateMealPlan } from './service
 import { parseQuantity, getRecipePantryStatus } from './lib/ingredientUtils';
 import { addItemToList } from './lib/shoppingUtils';
 import { calculateCookingStats } from './lib/progressionUtils';
-import { mergePantryItems } from './lib/pantryUtils';
+import { getPantryGenerationContext, mergePantryItems } from './lib/pantryUtils';
 import { HomeView } from './views/HomeView';
 import { RecipesView } from './views/RecipesView';
 import { SavedView } from './views/SavedView';
@@ -360,7 +360,13 @@ export default function App() {
   const handleGenerateFromPantry = async () => {
     setIsAnalyzing(true);
     try {
-      const generated = await generateRecipes(pantry.map(i => i.name), activeFilters, language);
+      const pantryContext = getPantryGenerationContext(pantry);
+      const generated = await generateRecipes(
+        pantryContext.ingredients,
+        activeFilters,
+        language,
+        pantryContext.priorityIngredients,
+      );
       addRecipesToCollection(generated);
       setView('recipes');
     } catch (error) {
@@ -374,7 +380,14 @@ export default function App() {
   const handleGenerateMealPlan = async () => {
     setIsGeneratingPlan(true);
     try {
-      const plan = await generateMealPlan(pantry.map(i => i.name), activeFilters, [], language);
+      const pantryContext = getPantryGenerationContext(pantry);
+      const plan = await generateMealPlan(
+        pantryContext.ingredients,
+        activeFilters,
+        [],
+        language,
+        pantryContext.priorityIngredients,
+      );
       setMealPlan(plan);
       setMealPlanLanguage(language);
       setUserStats(prev => ({ ...prev, mealPlansCreated: prev.mealPlansCreated + 1 }));
@@ -932,6 +945,9 @@ export default function App() {
               onRemove={(id) => setPantry(prev => prev.filter(i => i.id !== id))}
               onToggleLowStock={(id) => setPantry(prev => prev.map(i =>
                 i.id === id ? { ...i, isLowStock: !i.isLowStock } : i,
+              ))}
+              onUpdateExpiry={(id, expiresAt) => setPantry((prev) => prev.map((item) =>
+                item.id === id ? { ...item, expiresAt } : item,
               ))}
               onClear={() => setPantry([])}
               onGenerateRecipes={handleGenerateFromPantry}
