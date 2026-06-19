@@ -1,5 +1,7 @@
 # MealDrive
 
+[![Quality](https://github.com/ColinGamez/MealDrive/actions/workflows/quality.yml/badge.svg)](https://github.com/ColinGamez/MealDrive/actions/workflows/quality.yml)
+
 MealDrive is a multilingual AI kitchen assistant that turns pantry ingredients into practical recipes, weekly meal plans, and shopping lists.
 
 ## Highlights
@@ -23,7 +25,7 @@ npm run dev
 
 The unified Vite and Express server runs at `http://localhost:3000`.
 
-Set `GEMINI_API_KEY` in `.env.local` to enable fridge analysis, recipe generation, meal planning, meal swaps, and speech generation. Shopping-provider credentials are optional.
+Set `GEMINI_API_KEY` in `.env.local` to enable fridge analysis, recipe generation, meal planning, meal swaps, and speech generation. The server loads `.env.local` before `.env` while preserving any variables supplied by the host. Shopping-provider credentials are optional.
 
 ## Quality checks
 
@@ -34,7 +36,7 @@ npm run build
 npm start
 ```
 
-`npm run lint` performs a strict TypeScript compile check. The test suite covers ingredient math, pantry and shopping merges, storage behavior, and translation completeness across all supported languages.
+`npm run lint` performs a strict TypeScript compile check. The test suite covers API health and validation, credential boundaries, ingredient math, pantry and shopping merges, storage behavior, and translation completeness across all supported languages. GitHub Actions runs the full typecheck, test, and production-build gate for every pull request.
 
 ## Architecture
 

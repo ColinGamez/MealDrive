@@ -1,3 +1,4 @@
+import './env';
 import { Request, Response } from 'express';
 import { GoogleGenAI, Modality } from '@google/genai';
 import {
@@ -81,9 +82,6 @@ function isRecipe(value: unknown): value is Recipe {
 /* POST /api/ai/analyze-fridge                                         */
 /* ------------------------------------------------------------------ */
 export async function handleAnalyzeFridge(req: Request, res: Response) {
-  const ai = getClient();
-  if (!ai) return unauthenticated(res);
-
   const body = req.body as { image?: unknown; language?: unknown } | undefined;
   const image = typeof body?.image === 'string' ? body.image : '';
   const language = isLanguage(body?.language) ? body!.language : 'en';
@@ -92,6 +90,9 @@ export async function handleAnalyzeFridge(req: Request, res: Response) {
 
   const base64 = image.includes(',') ? image.split(',')[1] : image;
   if (!base64) return badRequest(res, 'Invalid base64 image payload.');
+
+  const ai = getClient();
+  if (!ai) return unauthenticated(res);
 
   try {
     const response = await ai.models.generateContent({
@@ -126,9 +127,6 @@ export async function handleAnalyzeFridge(req: Request, res: Response) {
 /* POST /api/ai/recipes                                                */
 /* ------------------------------------------------------------------ */
 export async function handleGenerateRecipes(req: Request, res: Response) {
-  const ai = getClient();
-  if (!ai) return unauthenticated(res);
-
   const body = req.body as
     | {
         ingredients?: unknown;
@@ -137,11 +135,21 @@ export async function handleGenerateRecipes(req: Request, res: Response) {
       }
     | undefined;
 
-  const ingredients = isStringArray(body?.ingredients) ? body!.ingredients : [];
+  if (!isStringArray(body?.ingredients)) {
+    return badRequest(res, '`ingredients` must be an array of strings.');
+  }
+  if (body?.dietaryRestrictions !== undefined && !isStringArray(body.dietaryRestrictions)) {
+    return badRequest(res, '`dietaryRestrictions` must be an array of strings.');
+  }
+
+  const ingredients = body.ingredients;
   const dietaryRestrictions = isStringArray(body?.dietaryRestrictions)
     ? body!.dietaryRestrictions
     : [];
   const language = isLanguage(body?.language) ? body!.language : 'en';
+
+  const ai = getClient();
+  if (!ai) return unauthenticated(res);
 
   const prompt = `${getLanguageInstructions(language)}
   Based on these ingredients: ${ingredients.join(', ')}, suggest 5 creative recipes.
@@ -184,9 +192,6 @@ export async function handleGenerateRecipes(req: Request, res: Response) {
 /* POST /api/ai/meal-plan                                              */
 /* ------------------------------------------------------------------ */
 export async function handleGenerateMealPlan(req: Request, res: Response) {
-  const ai = getClient();
-  if (!ai) return unauthenticated(res);
-
   const body = req.body as
     | {
         ingredients?: unknown;
@@ -196,12 +201,25 @@ export async function handleGenerateMealPlan(req: Request, res: Response) {
       }
     | undefined;
 
-  const ingredients = isStringArray(body?.ingredients) ? body!.ingredients : [];
+  if (!isStringArray(body?.ingredients)) {
+    return badRequest(res, '`ingredients` must be an array of strings.');
+  }
+  if (body?.dietaryRestrictions !== undefined && !isStringArray(body.dietaryRestrictions)) {
+    return badRequest(res, '`dietaryRestrictions` must be an array of strings.');
+  }
+  if (body?.cuisines !== undefined && !isStringArray(body.cuisines)) {
+    return badRequest(res, '`cuisines` must be an array of strings.');
+  }
+
+  const ingredients = body.ingredients;
   const dietaryRestrictions = isStringArray(body?.dietaryRestrictions)
     ? body!.dietaryRestrictions
     : [];
   const cuisines = isStringArray(body?.cuisines) ? body!.cuisines : [];
   const language = isLanguage(body?.language) ? body!.language : 'en';
+
+  const ai = getClient();
+  if (!ai) return unauthenticated(res);
 
   const prompt = `${getLanguageInstructions(language)}
   Generate a 7-day meal plan (Monday to Sunday) based on these available ingredients: ${ingredients.join(', ')}.
@@ -245,9 +263,6 @@ export async function handleGenerateMealPlan(req: Request, res: Response) {
 /* POST /api/ai/swap-meal                                              */
 /* ------------------------------------------------------------------ */
 export async function handleSwapMeal(req: Request, res: Response) {
-  const ai = getClient();
-  if (!ai) return unauthenticated(res);
-
   const body = req.body as
     | {
         currentMeal?: unknown;
@@ -261,6 +276,15 @@ export async function handleSwapMeal(req: Request, res: Response) {
   if (!isRecipe(body?.currentMeal)) {
     return badRequest(res, 'Missing or invalid `currentMeal`.');
   }
+  if (body?.ingredients !== undefined && !isStringArray(body.ingredients)) {
+    return badRequest(res, '`ingredients` must be an array of strings.');
+  }
+  if (body?.dietaryRestrictions !== undefined && !isStringArray(body.dietaryRestrictions)) {
+    return badRequest(res, '`dietaryRestrictions` must be an array of strings.');
+  }
+  if (body?.cuisines !== undefined && !isStringArray(body.cuisines)) {
+    return badRequest(res, '`cuisines` must be an array of strings.');
+  }
 
   const currentMeal = body!.currentMeal as Recipe;
   const ingredients = isStringArray(body?.ingredients) ? body!.ingredients : [];
@@ -269,6 +293,9 @@ export async function handleSwapMeal(req: Request, res: Response) {
     : [];
   const cuisines = isStringArray(body?.cuisines) ? body!.cuisines : [];
   const language = isLanguage(body?.language) ? body!.language : 'en';
+
+  const ai = getClient();
+  if (!ai) return unauthenticated(res);
 
   const prompt = `${getLanguageInstructions(language)}
   Suggest a different recipe to replace this one: ${currentMeal.title}.
@@ -312,14 +339,14 @@ export async function handleSwapMeal(req: Request, res: Response) {
 /* POST /api/ai/speech                                                 */
 /* ------------------------------------------------------------------ */
 export async function handleGenerateSpeech(req: Request, res: Response) {
-  const ai = getClient();
-  if (!ai) return unauthenticated(res);
-
   const body = req.body as { text?: unknown; language?: unknown } | undefined;
   const text = typeof body?.text === 'string' ? body.text : '';
   const language = isLanguage(body?.language) ? body!.language : 'en';
 
   if (!text.trim()) return badRequest(res, 'Missing `text`.');
+
+  const ai = getClient();
+  if (!ai) return unauthenticated(res);
 
   const voiceMap: Record<Language, string> = {
     en: 'Kore',

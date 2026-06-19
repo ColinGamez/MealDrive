@@ -1,5 +1,7 @@
 import { Recipe, MealPlan, Language } from '../types';
 
+const CLIENT_TIMEOUT_MS = 30000;
+
 /**
  * AI calls used to live in this file and ran in the browser, which leaked
  * GEMINI_API_KEY into the client bundle. Every call now goes through the
@@ -17,11 +19,20 @@ class AIServiceError extends Error {
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === 'TimeoutError';
+    throw new AIServiceError(
+      timedOut ? 'The AI request timed out. Please try again.' : 'Unable to reach the AI service.',
+    );
+  }
 
   let payload: unknown = null;
   try {
