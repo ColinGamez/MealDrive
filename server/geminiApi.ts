@@ -11,6 +11,7 @@ import {
 
 const PRO_MODEL = process.env.GEMINI_PRO_MODEL || 'gemini-2.5-pro';
 const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts';
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 let cachedClient: GoogleGenAI | null = null;
 function getClient(): GoogleGenAI | null {
@@ -68,6 +69,10 @@ function badRequest(res: Response, message: string) {
   res.status(400).json({ message });
 }
 
+function payloadTooLarge(res: Response, message: string) {
+  res.status(413).json({ message });
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((v) => typeof v === 'string');
 }
@@ -76,6 +81,19 @@ function isRecipe(value: unknown): value is Recipe {
   if (!value || typeof value !== 'object') return false;
   const r = value as Record<string, unknown>;
   return typeof r.title === 'string' && Array.isArray(r.ingredients);
+}
+
+function parseImagePayload(value: string): { data: string; mimeType: string } | null {
+  const dataUrl = value.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=\s]+)$/i);
+  if (value.startsWith('data:') && !dataUrl) return null;
+
+  const data = (dataUrl?.[2] ?? value).replace(/\s/g, '');
+  if (!data || data.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
+    return null;
+  }
+
+  const mimeType = dataUrl ? `image/${dataUrl[1].toLowerCase()}` : 'image/jpeg';
+  return { data, mimeType };
 }
 
 /* ------------------------------------------------------------------ */
@@ -88,8 +106,11 @@ export async function handleAnalyzeFridge(req: Request, res: Response) {
 
   if (!image) return badRequest(res, 'Missing `image` (base64 data URL).');
 
-  const base64 = image.includes(',') ? image.split(',')[1] : image;
-  if (!base64) return badRequest(res, 'Invalid base64 image payload.');
+  const parsedImage = parseImagePayload(image);
+  if (!parsedImage) return badRequest(res, 'Invalid base64 image payload.');
+  if (Buffer.byteLength(parsedImage.data, 'base64') > MAX_IMAGE_BYTES) {
+    return payloadTooLarge(res, 'Image payload exceeds the 8 MB limit.');
+  }
 
   const ai = getClient();
   if (!ai) return unauthenticated(res);
@@ -103,7 +124,7 @@ export async function handleAnalyzeFridge(req: Request, res: Response) {
             {
               text: `${getLanguageInstructions(language)}\nIdentify all visible food ingredients in this fridge. Return only a comma-separated list of ingredients in the specified language. Use common regional names for ingredients.`,
             },
-            { inlineData: { data: base64, mimeType: 'image/jpeg' } },
+            { inlineData: parsedImage },
           ],
         },
       ],

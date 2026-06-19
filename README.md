@@ -33,10 +33,11 @@ Set `GEMINI_API_KEY` in `.env.local` to enable fridge analysis, recipe generatio
 npm run lint
 npm test
 npm run build
+npm run smoke
 npm start
 ```
 
-`npm run lint` performs a strict TypeScript compile check. The test suite covers API health and validation, credential boundaries, ingredient math, pantry and shopping merges, storage behavior, and translation completeness across all supported languages. GitHub Actions runs the full typecheck, test, and production-build gate for every pull request.
+`npm run lint` performs a strict TypeScript compile check. The test suite covers API health, security headers, rate limits, validation, credential boundaries, ingredient math, pantry and shopping merges, storage behavior, and translation completeness across all supported languages. `npm run smoke` boots the compiled production server and verifies both its API and application shell. GitHub Actions runs the complete gate for every pull request.
 
 ## Architecture
 

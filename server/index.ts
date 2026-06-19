@@ -12,6 +12,7 @@ import {
   handleGenerateSpeech,
   handleSwapMeal,
 } from './geminiApi';
+import { createRateLimiter, RateLimitOptions } from './rateLimit';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -19,18 +20,61 @@ const distPath = path.resolve(root, 'dist');
 
 export type AppMode = 'development' | 'production' | 'test';
 
+export interface AppOptions {
+  mode?: AppMode;
+  rateLimits?: {
+    ai?: RateLimitOptions;
+    shopping?: RateLimitOptions;
+  };
+}
+
+function positiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export async function createApp(
-  options: { mode?: AppMode } = {},
+  options: AppOptions = {},
 ) {
   const mode = options.mode ?? (process.argv.includes('production') ? 'production' : 'development');
   const isProduction = mode === 'production';
   const app = express();
+
+  app.disable('x-powered-by');
+  if (process.env.TRUST_PROXY_HOPS) {
+    app.set('trust proxy', positiveInteger(process.env.TRUST_PROXY_HOPS, 1));
+  }
+
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
+    next();
+  });
 
   app.use(express.json({ limit: '12mb' }));
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
   });
+
+  const aiRateLimit = options.rateLimits?.ai ?? {
+    max: positiveInteger(process.env.AI_RATE_LIMIT_MAX, 30),
+    windowMs: positiveInteger(process.env.AI_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
+    message: 'Too many AI requests. Please wait before trying again.',
+  };
+  const shoppingRateLimit = options.rateLimits?.shopping ?? {
+    max: positiveInteger(process.env.SHOPPING_RATE_LIMIT_MAX, 60),
+    windowMs: positiveInteger(
+      process.env.SHOPPING_RATE_LIMIT_WINDOW_MS,
+      15 * 60 * 1000,
+    ),
+    message: 'Too many shopping export requests. Please wait before trying again.',
+  };
+
+  app.use('/api/ai', createRateLimiter(aiRateLimit));
+  app.use('/api/shopping', createRateLimiter(shoppingRateLimit));
 
   app.post('/api/shopping/export', handleShoppingExport);
 

@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { once } from 'node:events';
 import { describe, it } from 'node:test';
+import type { AppOptions } from '../index';
 
 process.env.MEALDRIVE_SKIP_ENV_LOAD = 'true';
 
 const { createApp } = await import('../index');
 
-async function withServer<T>(run: (baseUrl: string) => Promise<T>): Promise<T> {
-  const app = await createApp({ mode: 'test' });
+async function withServer<T>(
+  run: (baseUrl: string) => Promise<T>,
+  options: AppOptions = {},
+): Promise<T> {
+  const app = await createApp({ ...options, mode: 'test' });
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
 
@@ -36,6 +40,9 @@ describe('MealDrive API', () => {
       const response = await fetch(`${baseUrl}/api/health`);
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), { ok: true });
+      assert.equal(response.headers.get('x-powered-by'), null);
+      assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+      assert.match(response.headers.get('permissions-policy') || '', /camera=\(self\)/);
     });
   });
 
@@ -63,6 +70,11 @@ describe('MealDrive API', () => {
       await withServer(async (baseUrl) => {
         const imageResponse = await postJson(baseUrl, '/api/ai/analyze-fridge', {});
         assert.equal(imageResponse.status, 400);
+
+        const invalidImageResponse = await postJson(baseUrl, '/api/ai/analyze-fridge', {
+          image: 'data:text/plain;base64,SGVsbG8=',
+        });
+        assert.equal(invalidImageResponse.status, 400);
 
         const recipeResponse = await postJson(baseUrl, '/api/ai/recipes', {
           ingredients: 'eggs',
@@ -144,5 +156,31 @@ describe('MealDrive API', () => {
       assert.equal(response.status, 404);
       assert.deepEqual(await response.json(), { message: 'API route not found.' });
     });
+  });
+
+  it('rate limits repeated AI requests and returns retry metadata', async () => {
+    await withServer(
+      async (baseUrl) => {
+        const first = await postJson(baseUrl, '/api/ai/speech', {});
+        const second = await postJson(baseUrl, '/api/ai/speech', {});
+        const limited = await postJson(baseUrl, '/api/ai/speech', {});
+
+        assert.equal(first.status, 400);
+        assert.equal(second.status, 400);
+        assert.equal(limited.status, 429);
+        assert.equal(limited.headers.get('ratelimit-limit'), '2');
+        assert.equal(limited.headers.get('ratelimit-remaining'), '0');
+        assert.ok(Number(limited.headers.get('retry-after')) > 0);
+      },
+      {
+        rateLimits: {
+          ai: {
+            max: 2,
+            windowMs: 60_000,
+            message: 'AI test limit reached.',
+          },
+        },
+      },
+    );
   });
 });
